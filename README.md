@@ -23,7 +23,7 @@ psx_winctrl_pfp.py
 psx_winctrl_pfp.ini
 ```
 
-On macOS, unzip the application and place it in the Applications folder if preferred.
+On macOS, unzip the application psx_winctrl_pfp_macos and place it in the Applications folder if preferred.
 
 ## Starting the bridge
 
