@@ -3,6 +3,7 @@ import sys
 import signal
 import configparser
 import base64
+import re
 import socket
 import time
 import threading
@@ -30,7 +31,7 @@ def get_app_dir():
 # Version / debug
 # ============================================================
 
-VERSION = "1.50"
+VERSION = "1.53"
 APPLICATION_TITLE = "PSX WINCTRL PFPx Bridge"
 GUI_APPLICATION_TITLE = "PSX PFPx Bridge"
 LOG_FONT_FAMILY = "Menlo" if sys.platform == "darwin" else "Consolas"
@@ -348,6 +349,9 @@ PFP_BRT_HOLD_DELAY = 0.5
 PFP_BRT_FULL_RANGE_SECONDS = 2.6
 PFP_BRT_REPEAT_INTERVAL = PFP_BRT_FULL_RANGE_SECONDS / (PFP_SCREEN_BRIGHTNESS_STEPS - 1)
 
+# Periodically re-send the current backlight values to keep the HID output side active.
+HID_BRIGHTNESS_KEEPALIVE_SECONDS = 15.0
+
 # Temporary scratchpad brightness indication.
 BRIGHTNESS_OVERLAY_SECONDS = 2.2
 BRIGHTNESS_BLOCK = "\u2588"  # U+2588 FULL BLOCK
@@ -468,6 +472,7 @@ class BridgeGui:
         self.stopping = False
         self.mini_mode = False
         self.full_geometry = f"{self.FULL_WIDTH}x{self.FULL_HEIGHT}"
+        self.mini_geometry = None
         self.mini_drag_anchor = None
         self.log_queue = queue.Queue()
         self.log_lines = []
@@ -540,44 +545,88 @@ class BridgeGui:
         SHUTDOWN_REQUESTED.set()
         self._draw()
 
+    def _set_windows_toolwindow(self, enabled):
+        """Hide Mini mode from the Windows taskbar without affecting other platforms."""
+        if sys.platform != "win32":
+            return
+
+        try:
+            self.root.attributes("-toolwindow", bool(enabled))
+        except tk.TclError:
+            pass
+
     def _toggle_mini_mode(self):
         self.menu_open = False
         self.about_open = False
         self.root.update_idletasks()
 
         if not self.mini_mode:
-            # Preserve the current full-window position before removing the
-            # native title bar. Mini then opens at the same screen location.
+            # Preserve the original Full-window geometry. Full always returns
+            # here, regardless of where Mini is dragged afterwards.
             x = self.root.winfo_x()
             y = self.root.winfo_y()
             size = self.root.geometry().split("+", 1)[0]
             self.full_geometry = f"{size}+{x}+{y}"
 
+            # The first Mini opens at Full's position. Later Mini sessions in
+            # the same running application use the last dragged Mini position.
+            if self.mini_geometry:
+                _, _, mini_x, mini_y = self._split_geometry(self.mini_geometry)
+            else:
+                mini_x, mini_y = x, y
+
+            # Withdraw while changing the native window style. On Windows this
+            # prevents the taskbar from retaining a second-looking window entry.
+            self.root.withdraw()
             self.mini_mode = True
             self.root.resizable(False, False)
             self.root.minsize(self.MINI_WIDTH, self.MINI_HEIGHT)
             self.root.maxsize(self.MINI_WIDTH, self.MINI_HEIGHT)
             self.root.overrideredirect(True)
+            self._set_windows_toolwindow(True)
             self.root.attributes("-topmost", True)
             self.root.geometry(
-                f"{self.MINI_WIDTH}x{self.MINI_HEIGHT}+{x}+{y}"
+                f"{self.MINI_WIDTH}x{self.MINI_HEIGHT}+{mini_x}+{mini_y}"
             )
+            self.root.deiconify()
+            self.root.lift()
         else:
-            # Use the Mini position for the restored normal window as well.
-            x = self.root.winfo_x()
-            y = self.root.winfo_y()
-            size = self.full_geometry.split("+", 1)[0]
+            # Remember Mini's latest screen position only for this run.
+            mini_x = self.root.winfo_x()
+            mini_y = self.root.winfo_y()
+            self.mini_geometry = (
+                f"{self.MINI_WIDTH}x{self.MINI_HEIGHT}+{mini_x}+{mini_y}"
+            )
 
+            # Always restore the original Full-window geometry. Mini may have
+            # been dragged onto the taskbar, but that must not affect Full.
+            self.root.withdraw()
             self.mini_mode = False
-            self.root.overrideredirect(False)
             self.root.attributes("-topmost", False)
+            self.root.overrideredirect(False)
+            self._set_windows_toolwindow(False)
             self.root.resizable(True, True)
             self.root.minsize(self.FULL_WIDTH, self.FULL_HEIGHT)
             self.root.maxsize(10000, 10000)
-            self.root.geometry(f"{size}+{x}+{y}")
+            self.root.geometry(self.full_geometry)
+            self.root.deiconify()
+            self.root.lift()
+            try:
+                self.root.focus_force()
+            except tk.TclError:
+                pass
 
         self.root.update_idletasks()
         self._draw()
+
+    @staticmethod
+    def _split_geometry(geometry):
+        """Return width, height, x and y from a standard Tk geometry string."""
+        match = re.fullmatch(r"(\d+)x(\d+)([+-]\d+)([+-]\d+)", geometry)
+        if not match:
+            raise ValueError(f"Invalid Tk geometry: {geometry!r}")
+        width, height, x, y = match.groups()
+        return int(width), int(height), int(x), int(y)
 
     def _select_cdu(self, cdu):
         if self.stopping or self.psx_sender is None:
@@ -1386,6 +1435,25 @@ class PfpLedController:
         with self.lock:
             return self.screen_brightness_step
 
+    def refresh_screen_brightness_keepalive(self):
+        """Re-send the current brightness without changing any saved setting."""
+        with self.lock:
+            value = brightness_value_from_step(self.screen_brightness_step)
+
+            screen_written = self._write_light_control_message(
+                PFP_SCREEN_BACKLIGHT_CHANNEL,
+                value,
+            )
+            key_written = self._write_light_control_message(
+                PFP_KEY_BACKLIGHT_CHANNEL,
+                value,
+            )
+
+            if screen_written is not None and screen_written <= 0:
+                raise OSError("HID brightness keepalive write returned 0 bytes")
+            if key_written is not None and key_written <= 0:
+                raise OSError("HID brightness keepalive write returned 0 bytes")
+
     def _set_screen_brightness_step_unlocked(self, step, force=False):
         step = max(0, min(PFP_SCREEN_BRIGHTNESS_STEPS - 1, step))
         value = brightness_value_from_step(step)
@@ -2110,35 +2178,6 @@ class PsxSender:
         # The active CDU display is now selected from self.all_fmc_lines.
         self.fmc_lines = self.all_fmc_lines
 
-    def _request_active_cdu_data(self):
-        with self.sock_lock:
-            s = self.sock
-
-        if not s:
-            return
-
-        cfg = self._active_config()
-
-        try:
-            for q in cfg["screen_qs_lines"]:
-                s.sendall(f"Qs{q}\n".encode("ascii"))
-
-            for q in self._active_color_qs_lines():
-                s.sendall(f"Qs{q}\n".encode("ascii"))
-
-            s.sendall(f"Qi{cfg['lights_qi']}\n".encode("ascii"))
-            s.sendall(f"Qi{cfg['blank_qi']}\n".encode("ascii"))
-            s.sendall(f"Qi{PSX_FMC_CONFIG_QI}\n".encode("ascii"))
-
-            log_debug(
-                f"[CONFIG] Active CDU {cfg['label']}: "
-                f"{cfg['key_qh']}, Qs{cfg['screen_qs_lines'][0]}-Qs{cfg['screen_qs_lines'][-1]}, "
-                f"Qi{cfg['lights_qi']}, Qi{cfg['blank_qi']}"
-            )
-
-        except Exception as e:
-            log(f"[PSX] failed to request active CDU data: {repr(e)}")
-            self._close()
 
     def set_active_cdu(self, cdu):
         cdu = cdu.upper()
@@ -2147,7 +2186,6 @@ class PsxSender:
             return False
 
         self.cdu_lights_state = {}
-        self._request_active_cdu_data()
 
         # Re-apply the last known Qi248 value for the newly selected CDU.
         # Qi248 itself may not change when switching CDU, but the relevant
@@ -2266,24 +2304,14 @@ class PsxSender:
             log("[PSX] connected")
 
             try:
-                s.sendall(f"clientName={GUI_APPLICATION_TITLE} - {PFP_DEVICE_LABEL}\n".encode("utf-8"))
-
-                # Request all CDU screen and LCD color lines on connect.
-                # PSX sends these values immediately, so the bridge starts with
-                # a filled cache for left, center, and right CDU.
-                for q in range(62, 104):
-                    s.sendall(f"Qs{q}\n".encode("ascii"))
-
-                for q in CDU_COLOR_QS_RANGE:
-                    s.sendall(f"Qs{q}\n".encode("ascii"))
-
-                for qi in (86, 87, 88, 89, 90, 91, PSX_FMC_CONFIG_QI):
-                    s.sendall(f"Qi{qi}\n".encode("ascii"))
-
-                log_debug(
-                    "[PSX] requested all CDU screen Qs62-Qs103, "
-                    "LCD color Qs500-Qs541, lights Qi86-Qi88, blanking Qi89-Qi91, and Qi248"
+                s.sendall(
+                    f"clientName={GUI_APPLICATION_TITLE} - {PFP_DEVICE_LABEL}\n"
+                    .encode("utf-8")
                 )
+
+                # The bridge uses ECON variables only. PSX sends the required
+                # CDU text, colors, lights, blanking state and Qi248 itself
+                # when the network connection starts and whenever they change.
 
             except Exception as e:
                 log(f"[PSX] setup failed after connect: {repr(e)}")
@@ -2838,6 +2866,7 @@ def bridge_main():
     brt_hold_start_time = None
     brt_last_repeat_time = 0.0
     hid_disconnected = False
+    last_brightness_keepalive = time.monotonic()
 
     try:
         while not SHUTDOWN_REQUESTED.is_set():
@@ -2849,6 +2878,17 @@ def bridge_main():
                 log("[HID] CDU disconnected")
                 SHUTDOWN_REQUESTED.set()
                 break
+
+            now = time.monotonic()
+            if now - last_brightness_keepalive >= HID_BRIGHTNESS_KEEPALIVE_SECONDS:
+                try:
+                    pfp_leds.refresh_screen_brightness_keepalive()
+                except (OSError, ValueError):
+                    hid_disconnected = True
+                    log("[HID] CDU disconnected")
+                    SHUTDOWN_REQUESTED.set()
+                    break
+                last_brightness_keepalive = now
 
             if not data:
                 if SHUTDOWN_REQUESTED.wait(0.001):
@@ -2879,8 +2919,6 @@ def bridge_main():
             rising = cur_pressed - prev_pressed
             falling = prev_pressed - cur_pressed
             prev_pressed = cur_pressed
-
-            now = time.monotonic()
 
             if (
                 brt_hold_direction != 0
