@@ -3,11 +3,11 @@ import sys
 import signal
 import configparser
 import base64
-import re
 import socket
 import time
 import threading
 import queue
+import re
 os.environ["TK_SILENCE_DEPRECATION"] = "1"
 import tkinter as tk
 import tkinter.font as tkfont
@@ -31,7 +31,7 @@ def get_app_dir():
 # Version / debug
 # ============================================================
 
-VERSION = "1.53"
+VERSION = "1.54"
 APPLICATION_TITLE = "PSX WINCTRL PFPx Bridge"
 GUI_APPLICATION_TITLE = "PSX PFPx Bridge"
 LOG_FONT_FAMILY = "Menlo" if sys.platform == "darwin" else "Consolas"
@@ -589,7 +589,12 @@ class BridgeGui:
                 f"{self.MINI_WIDTH}x{self.MINI_HEIGHT}+{mini_x}+{mini_y}"
             )
             self.root.deiconify()
+            self.root.attributes("-topmost", True)
             self.root.lift()
+            if sys.platform == "darwin":
+                self.root.after_idle(
+                    lambda: self.root.attributes("-topmost", True)
+                )
         else:
             # Remember Mini's latest screen position only for this run.
             mini_x = self.root.winfo_x()
