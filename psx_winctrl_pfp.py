@@ -31,7 +31,7 @@ def get_app_dir():
 # Version / debug
 # ============================================================
 
-VERSION = "1.54"
+VERSION = "1.55"
 APPLICATION_TITLE = "PSX WINCTRL PFPx Bridge"
 GUI_APPLICATION_TITLE = "PSX PFPx Bridge"
 LOG_FONT_FAMILY = "Menlo" if sys.platform == "darwin" else "Consolas"
@@ -461,19 +461,30 @@ class BridgeGui:
     def __init__(self):
         self.root = tk.Tk()
         self.root.title(self._display_title())
-        self.root.geometry(f"{self.FULL_WIDTH}x{self.FULL_HEIGHT}")
+
+        full_x, full_y, mini_x, mini_y = self._load_saved_window_positions()
+        self.full_geometry = f"{self.FULL_WIDTH}x{self.FULL_HEIGHT}"
+        if full_x is not None and full_y is not None:
+            self.full_geometry += f"+{full_x}+{full_y}"
+        self.mini_geometry = None
+        if mini_x is not None and mini_y is not None:
+            self.mini_geometry = (
+                f"{self.MINI_WIDTH}x{self.MINI_HEIGHT}+{mini_x}+{mini_y}"
+            )
+
+        self.root.geometry(self.full_geometry)
         self.root.minsize(self.FULL_WIDTH, self.FULL_HEIGHT)
         self.root.configure(background=self.WINDOW_BG)
         self.root.protocol("WM_DELETE_WINDOW", self.request_stop)
+        self.root.overrideredirect(True)
 
         self.bridge_thread = None
         self.psx_sender = None
         self.close_when_stopped = False
         self.stopping = False
         self.mini_mode = False
-        self.full_geometry = f"{self.FULL_WIDTH}x{self.FULL_HEIGHT}"
-        self.mini_geometry = None
         self.mini_drag_anchor = None
+        self.full_drag_anchor = None
         self.log_queue = queue.Queue()
         self.log_lines = []
         self.log_scroll_offset = 0
@@ -506,6 +517,28 @@ class BridgeGui:
         self.canvas.bind("<Button-5>", lambda _event: self._scroll_log(+1))
 
         self.root.after(150, self._refresh)
+
+    @staticmethod
+    def _load_saved_window_positions():
+        """Load saved Full and Mini positions from the optional [GUI] section."""
+        cfg = configparser.ConfigParser()
+        try:
+            cfg.read(CONFIG_FILE, encoding="utf-8")
+        except Exception:
+            return None, None, None, None
+
+        def get_int(key):
+            try:
+                return cfg.getint("GUI", key, fallback=None)
+            except (ValueError, configparser.Error):
+                return None
+
+        return (
+            get_int("FULL_X"),
+            get_int("FULL_Y"),
+            get_int("MINI_X"),
+            get_int("MINI_Y"),
+        )
 
     def _display_title(self):
         return f"{GUI_APPLICATION_TITLE} - {PFP_DEVICE_LABEL}"
@@ -542,6 +575,10 @@ class BridgeGui:
 
         self.stopping = True
         self.close_when_stopped = True
+        try:
+            self.save_window_positions()
+        except Exception as e:
+            log_debug(f"[CONFIG] failed to save GUI position: {repr(e)}")
         SHUTDOWN_REQUESTED.set()
         self._draw()
 
@@ -608,7 +645,7 @@ class BridgeGui:
             self.root.withdraw()
             self.mini_mode = False
             self.root.attributes("-topmost", False)
-            self.root.overrideredirect(False)
+            self.root.overrideredirect(True)
             self._set_windows_toolwindow(False)
             self.root.resizable(True, True)
             self.root.minsize(self.FULL_WIDTH, self.FULL_HEIGHT)
@@ -632,6 +669,48 @@ class BridgeGui:
             raise ValueError(f"Invalid Tk geometry: {geometry!r}")
         width, height, x, y = match.groups()
         return int(width), int(height), int(x), int(y)
+
+    def save_window_positions(self):
+        """Save Full and Mini X/Y positions without rewriting the rest of the INI."""
+        try:
+            self.root.update_idletasks()
+        except tk.TclError:
+            return
+
+        if self.mini_mode:
+            mini_x = self.root.winfo_x()
+            mini_y = self.root.winfo_y()
+            self.mini_geometry = (
+                f"{self.MINI_WIDTH}x{self.MINI_HEIGHT}+{mini_x}+{mini_y}"
+            )
+        else:
+            full_x = self.root.winfo_x()
+            full_y = self.root.winfo_y()
+            size = self.root.geometry().split("+", 1)[0]
+            self.full_geometry = f"{size}+{full_x}+{full_y}"
+
+        try:
+            _, _, full_x, full_y = self._split_geometry(self.full_geometry)
+        except ValueError:
+            full_x = self.root.winfo_x()
+            full_y = self.root.winfo_y()
+
+        if self.mini_geometry:
+            try:
+                _, _, mini_x, mini_y = self._split_geometry(self.mini_geometry)
+            except ValueError:
+                mini_x, mini_y = full_x, full_y
+        else:
+            mini_x, mini_y = full_x, full_y
+
+        save_ini_value("GUI", "FULL_X", full_x)
+        save_ini_value("GUI", "FULL_Y", full_y)
+        save_ini_value("GUI", "MINI_X", mini_x)
+        save_ini_value("GUI", "MINI_Y", mini_y)
+        log_debug(
+            f"[CONFIG] saved GUI FULL=({full_x},{full_y}) "
+            f"MINI=({mini_x},{mini_y})"
+        )
 
     def _select_cdu(self, cdu):
         if self.stopping or self.psx_sender is None:
@@ -751,7 +830,10 @@ class BridgeGui:
             if x1 <= event.x <= x2 and y1 <= event.y <= y2:
                 if name == "QUIT":
                     if self.bridge_thread is not None and not self.bridge_thread.is_alive():
-                        self.root.destroy()
+                        try:
+                            self.save_window_positions()
+                        finally:
+                            self.root.destroy()
                     else:
                         self.request_stop()
                 elif name == "MODE":
@@ -759,6 +841,11 @@ class BridgeGui:
                 else:
                     self._select_cdu(name)
                 return
+
+        # Full mode is borderless too. The free brown header area acts as the
+        # draggable title bar, while buttons and the menu keep their own actions.
+        if not self.mini_mode and event.y <= 48:
+            self.full_drag_anchor = (event.x, event.y)
 
     def _on_double_click(self, event):
         if not self.mini_mode:
@@ -777,6 +864,7 @@ class BridgeGui:
     def _on_release(self, _event):
         self.log_dragging = False
         self.mini_drag_anchor = None
+        self.full_drag_anchor = None
 
     def _on_drag(self, event):
         if self.mini_mode:
@@ -784,6 +872,13 @@ class BridgeGui:
                 return
 
             anchor_x, anchor_y = self.mini_drag_anchor
+            x = self.root.winfo_pointerx() - anchor_x
+            y = self.root.winfo_pointery() - anchor_y
+            self.root.geometry(f"+{x}+{y}")
+            return
+
+        if self.full_drag_anchor is not None:
+            anchor_x, anchor_y = self.full_drag_anchor
             x = self.root.winfo_pointerx() - anchor_x
             y = self.root.winfo_pointery() - anchor_y
             self.root.geometry(f"+{x}+{y}")
