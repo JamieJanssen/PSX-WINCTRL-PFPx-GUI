@@ -31,7 +31,7 @@ def get_app_dir():
 # Version / debug
 # ============================================================
 
-VERSION = "1.55"
+VERSION = "1.56"
 APPLICATION_TITLE = "PSX WINCTRL PFPx Bridge"
 GUI_APPLICATION_TITLE = "PSX PFPx Bridge"
 LOG_FONT_FAMILY = "Menlo" if sys.platform == "darwin" else "Consolas"
@@ -620,7 +620,7 @@ class BridgeGui:
             self.root.minsize(self.MINI_WIDTH, self.MINI_HEIGHT)
             self.root.maxsize(self.MINI_WIDTH, self.MINI_HEIGHT)
             self.root.overrideredirect(True)
-            self._set_windows_toolwindow(True)
+            self._set_windows_toolwindow(False)
             self.root.attributes("-topmost", True)
             self.root.geometry(
                 f"{self.MINI_WIDTH}x{self.MINI_HEIGHT}+{mini_x}+{mini_y}"
