@@ -31,7 +31,7 @@ def get_app_dir():
 # Version / debug
 # ============================================================
 
-VERSION = "1.56e"
+VERSION = "1.56f"
 APPLICATION_TITLE = "PSX WINCTRL PFPx Bridge"
 GUI_APPLICATION_TITLE = "PSX PFPx Bridge"
 LOG_FONT_FAMILY = "Menlo" if sys.platform == "darwin" else "Consolas"
@@ -542,6 +542,9 @@ class BridgeGui:
             GWL_EXSTYLE = -20
             WS_CAPTION = 0x00C00000
             WS_THICKFRAME = 0x00040000
+            WS_SYSMENU = 0x00080000
+            WS_MINIMIZEBOX = 0x00020000
+            WS_MAXIMIZEBOX = 0x00010000
             WS_EX_TOOLWINDOW = 0x00000080
             WS_EX_APPWINDOW = 0x00040000
             SWP_NOMOVE = 0x0002
@@ -554,7 +557,13 @@ class BridgeGui:
             ICON_BIG = 1
 
             style = user32.GetWindowLongW(hwnd, GWL_STYLE)
-            style &= ~(WS_CAPTION | WS_THICKFRAME)
+            style &= ~(
+                WS_CAPTION
+                | WS_THICKFRAME
+                | WS_SYSMENU
+                | WS_MINIMIZEBOX
+                | WS_MAXIMIZEBOX
+            )
             user32.SetWindowLongW(hwnd, GWL_STYLE, style)
 
             exstyle = user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
