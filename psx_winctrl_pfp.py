@@ -31,7 +31,7 @@ def get_app_dir():
 # Version / debug
 # ============================================================
 
-VERSION = "1.56c"
+VERSION = "1.56d"
 APPLICATION_TITLE = "PSX WINCTRL PFPx Bridge"
 GUI_APPLICATION_TITLE = "PSX PFPx Bridge"
 LOG_FONT_FAMILY = "Menlo" if sys.platform == "darwin" else "Consolas"
@@ -705,8 +705,15 @@ class BridgeGui:
             self.root.withdraw()
             self.mini_mode = True
             self.root.resizable(False, False)
-            self.root.minsize(self.MINI_WIDTH, self.MINI_HEIGHT)
-            self.root.maxsize(self.MINI_WIDTH, self.MINI_HEIGHT)
+            if sys.platform == "win32":
+                # Tk's min/max-size hints are based on a decorated Windows
+                # frame and can force the native borderless Mini window taller
+                # than its intended 258x46 client area. Leave sizing to Win32.
+                self.root.minsize(1, 1)
+                self.root.maxsize(10000, 10000)
+            else:
+                self.root.minsize(self.MINI_WIDTH, self.MINI_HEIGHT)
+                self.root.maxsize(self.MINI_WIDTH, self.MINI_HEIGHT)
             self._apply_borderless_window_style(self.MINI_WIDTH, self.MINI_HEIGHT)
             self._set_windows_toolwindow(False)
             self.root.attributes("-topmost", True)
