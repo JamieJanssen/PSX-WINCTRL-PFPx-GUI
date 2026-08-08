@@ -31,7 +31,7 @@ def get_app_dir():
 # Version / debug
 # ============================================================
 
-VERSION = "1.56d"
+VERSION = "1.56e"
 APPLICATION_TITLE = "PSX WINCTRL PFPx Bridge"
 GUI_APPLICATION_TITLE = "PSX PFPx Bridge"
 LOG_FONT_FAMILY = "Menlo" if sys.platform == "darwin" else "Consolas"
@@ -581,8 +581,17 @@ class BridgeGui:
                     current_client_h = client_rect.bottom - client_rect.top
                     current_window_w = window_rect.right - window_rect.left
                     current_window_h = window_rect.bottom - window_rect.top
-                    target_window_w = current_window_w + int(client_width) - current_client_w
-                    target_window_h = current_window_h + int(client_height) - current_client_h
+
+                    if self.mini_mode:
+                        # Mini is fully borderless on Windows, so make the native
+                        # window itself exactly 258x46. This keeps the right margin
+                        # equal to the 16 px left margin around the three buttons.
+                        target_window_w = int(client_width)
+                        target_window_h = int(client_height)
+                    else:
+                        target_window_w = current_window_w + int(client_width) - current_client_w
+                        target_window_h = current_window_h + int(client_height) - current_client_h
+
                     user32.SetWindowPos(
                         hwnd, 0, 0, 0, target_window_w, target_window_h,
                         SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE,
