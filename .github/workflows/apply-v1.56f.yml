@@ -1,0 +1,59 @@
+name: Apply v1.56f update
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.event.head_commit.message == 'Prepare v1.56f update'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply source changes
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import ast
+
+          p = Path('psx_winctrl_pfp.py')
+          text = p.read_text(encoding='utf-8')
+
+          def replace_once(old, new, label):
+              global text
+              if old not in text:
+                  raise RuntimeError(f'Could not find {label}')
+              text = text.replace(old, new, 1)
+
+          replace_once('VERSION = "1.56e"', 'VERSION = "1.56f"', 'version')
+
+          replace_once(
+          '''            WS_CAPTION = 0x00C00000\n            WS_THICKFRAME = 0x00040000\n            WS_EX_TOOLWINDOW = 0x00000080\n''',
+          '''            WS_CAPTION = 0x00C00000\n            WS_THICKFRAME = 0x00040000\n            WS_SYSMENU = 0x00080000\n            WS_MINIMIZEBOX = 0x00020000\n            WS_MAXIMIZEBOX = 0x00010000\n            WS_EX_TOOLWINDOW = 0x00000080\n''',
+          'Windows style constants')
+
+          replace_once(
+          '''            style = user32.GetWindowLongW(hwnd, GWL_STYLE)\n            style &= ~(WS_CAPTION | WS_THICKFRAME)\n            user32.SetWindowLongW(hwnd, GWL_STYLE, style)\n''',
+          '''            style = user32.GetWindowLongW(hwnd, GWL_STYLE)\n            style &= ~(\n                WS_CAPTION\n                | WS_THICKFRAME\n                | WS_SYSMENU\n                | WS_MINIMIZEBOX\n                | WS_MAXIMIZEBOX\n            )\n            user32.SetWindowLongW(hwnd, GWL_STYLE, style)\n''',
+          'Windows style mask')
+
+          ast.parse(text)
+          p.write_text(text, encoding='utf-8')
+          PY
+          python -m py_compile psx_winctrl_pfp.py
+
+      - name: Commit v1.56f
+        shell: bash
+        run: |
+          git config user.name "JamieJanssen"
+          git config user.email "jamie@itsjamie.com"
+          git add psx_winctrl_pfp.py
+          git commit -m "v1.56f remove Windows caption control styles"
+          git push origin HEAD:main
