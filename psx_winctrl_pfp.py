@@ -31,7 +31,7 @@ def get_app_dir():
 # Version / debug
 # ============================================================
 
-VERSION = "1.56b"
+VERSION = "1.56c"
 APPLICATION_TITLE = "PSX WINCTRL PFPx Bridge"
 GUI_APPLICATION_TITLE = "PSX PFPx Bridge"
 LOG_FONT_FAMILY = "Menlo" if sys.platform == "darwin" else "Consolas"
@@ -476,7 +476,7 @@ class BridgeGui:
         self.root.minsize(self.FULL_WIDTH, self.FULL_HEIGHT)
         self.root.configure(background=self.WINDOW_BG)
         self.root.protocol("WM_DELETE_WINDOW", self.request_stop)
-        self._apply_borderless_window_style()
+        self._apply_borderless_window_style(self.FULL_WIDTH, self.FULL_HEIGHT)
 
         self.bridge_thread = None
         self.psx_sender = None
@@ -518,7 +518,7 @@ class BridgeGui:
 
         self.root.after(150, self._refresh)
 
-    def _apply_borderless_window_style(self):
+    def _apply_borderless_window_style(self, client_width=None, client_height=None):
         """Use native Win32 borderless styling while keeping normal app switching."""
         if sys.platform != "win32":
             self.root.overrideredirect(True)
@@ -526,6 +526,7 @@ class BridgeGui:
 
         try:
             import ctypes
+            from ctypes import wintypes
 
             # Keep this as a normal Tk top-level window on Windows. Using
             # overrideredirect(True) makes Tk create a popup-style window that
@@ -534,6 +535,7 @@ class BridgeGui:
             self.root.update_idletasks()
 
             user32 = ctypes.windll.user32
+            shell32 = ctypes.windll.shell32
             hwnd = user32.GetParent(self.root.winfo_id()) or self.root.winfo_id()
 
             GWL_STYLE = -16
@@ -547,6 +549,9 @@ class BridgeGui:
             SWP_NOZORDER = 0x0004
             SWP_NOACTIVATE = 0x0010
             SWP_FRAMECHANGED = 0x0020
+            WM_SETICON = 0x0080
+            ICON_SMALL = 0
+            ICON_BIG = 1
 
             style = user32.GetWindowLongW(hwnd, GWL_STYLE)
             style &= ~(WS_CAPTION | WS_THICKFRAME)
@@ -562,6 +567,42 @@ class BridgeGui:
                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER |
                 SWP_NOACTIVATE | SWP_FRAMECHANGED,
             )
+
+            # Removing the native frame changes the relationship between Tk's
+            # requested geometry and the actual client area. Correct the native
+            # window size so the Canvas remains exactly the historical size.
+            if client_width is not None and client_height is not None:
+                client_rect = wintypes.RECT()
+                window_rect = wintypes.RECT()
+                if user32.GetClientRect(hwnd, ctypes.byref(client_rect)) and user32.GetWindowRect(
+                    hwnd, ctypes.byref(window_rect)
+                ):
+                    current_client_w = client_rect.right - client_rect.left
+                    current_client_h = client_rect.bottom - client_rect.top
+                    current_window_w = window_rect.right - window_rect.left
+                    current_window_h = window_rect.bottom - window_rect.top
+                    target_window_w = current_window_w + int(client_width) - current_client_w
+                    target_window_h = current_window_h + int(client_height) - current_client_h
+                    user32.SetWindowPos(
+                        hwnd, 0, 0, 0, target_window_w, target_window_h,
+                        SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE,
+                    )
+
+            # PyInstaller embeds --icon in the EXE, but Tk's native window can
+            # otherwise keep its own feather icon. Reuse the executable's icon.
+            if getattr(sys, "frozen", False):
+                large_icon = wintypes.HICON()
+                small_icon = wintypes.HICON()
+                count = shell32.ExtractIconExW(
+                    sys.executable, 0,
+                    ctypes.byref(large_icon), ctypes.byref(small_icon), 1,
+                )
+                if count:
+                    if large_icon:
+                        user32.SendMessageW(hwnd, WM_SETICON, ICON_BIG, large_icon)
+                    if small_icon:
+                        user32.SendMessageW(hwnd, WM_SETICON, ICON_SMALL, small_icon)
+                    self._windows_icon_handles = (large_icon, small_icon)
         except Exception as e:
             log_debug(f"[GUI] could not set Windows borderless style: {repr(e)}")
 
@@ -666,7 +707,7 @@ class BridgeGui:
             self.root.resizable(False, False)
             self.root.minsize(self.MINI_WIDTH, self.MINI_HEIGHT)
             self.root.maxsize(self.MINI_WIDTH, self.MINI_HEIGHT)
-            self._apply_borderless_window_style()
+            self._apply_borderless_window_style(self.MINI_WIDTH, self.MINI_HEIGHT)
             self._set_windows_toolwindow(False)
             self.root.attributes("-topmost", True)
             self.root.geometry(
@@ -675,7 +716,11 @@ class BridgeGui:
             self.root.deiconify()
             self.root.attributes("-topmost", True)
             self.root.lift()
-            self.root.after_idle(self._apply_borderless_window_style)
+            self.root.after_idle(
+                lambda: self._apply_borderless_window_style(
+                    self.MINI_WIDTH, self.MINI_HEIGHT
+                )
+            )
             if sys.platform == "darwin":
                 self.root.after_idle(
                     lambda: self.root.attributes("-topmost", True)
@@ -693,7 +738,7 @@ class BridgeGui:
             self.root.withdraw()
             self.mini_mode = False
             self.root.attributes("-topmost", False)
-            self._apply_borderless_window_style()
+            self._apply_borderless_window_style(self.FULL_WIDTH, self.FULL_HEIGHT)
             self._set_windows_toolwindow(False)
             self.root.resizable(True, True)
             self.root.minsize(self.FULL_WIDTH, self.FULL_HEIGHT)
@@ -701,7 +746,11 @@ class BridgeGui:
             self.root.geometry(self.full_geometry)
             self.root.deiconify()
             self.root.lift()
-            self.root.after_idle(self._apply_borderless_window_style)
+            self.root.after_idle(
+                lambda: self._apply_borderless_window_style(
+                    self.FULL_WIDTH, self.FULL_HEIGHT
+                )
+            )
             try:
                 self.root.focus_force()
             except tk.TclError:
