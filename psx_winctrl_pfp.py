@@ -31,7 +31,7 @@ def get_app_dir():
 # Version / debug
 # ============================================================
 
-VERSION = "1.56a"
+VERSION = "1.56b"
 APPLICATION_TITLE = "PSX WINCTRL PFPx Bridge"
 GUI_APPLICATION_TITLE = "PSX PFPx Bridge"
 LOG_FONT_FAMILY = "Menlo" if sys.platform == "darwin" else "Consolas"
@@ -476,7 +476,7 @@ class BridgeGui:
         self.root.minsize(self.FULL_WIDTH, self.FULL_HEIGHT)
         self.root.configure(background=self.WINDOW_BG)
         self.root.protocol("WM_DELETE_WINDOW", self.request_stop)
-        self.root.overrideredirect(True)
+        self._apply_borderless_window_style()
 
         self.bridge_thread = None
         self.psx_sender = None
@@ -517,36 +517,53 @@ class BridgeGui:
         self.canvas.bind("<Button-5>", lambda _event: self._scroll_log(+1))
 
         self.root.after(150, self._refresh)
-        self.root.after_idle(self._ensure_windows_alt_tab_presence)
 
-    def _ensure_windows_alt_tab_presence(self):
-        """Keep the borderless Tk window available through Windows Alt+Tab."""
+    def _apply_borderless_window_style(self):
+        """Use native Win32 borderless styling while keeping normal app switching."""
         if sys.platform != "win32":
+            self.root.overrideredirect(True)
             return
 
         try:
             import ctypes
 
+            # Keep this as a normal Tk top-level window on Windows. Using
+            # overrideredirect(True) makes Tk create a popup-style window that
+            # Windows can omit from Alt+Tab. Strip only the native frame here.
+            self.root.overrideredirect(False)
+            self.root.update_idletasks()
+
             user32 = ctypes.windll.user32
             hwnd = user32.GetParent(self.root.winfo_id()) or self.root.winfo_id()
+
+            GWL_STYLE = -16
             GWL_EXSTYLE = -20
+            WS_CAPTION = 0x00C00000
+            WS_THICKFRAME = 0x00040000
             WS_EX_TOOLWINDOW = 0x00000080
             WS_EX_APPWINDOW = 0x00040000
             SWP_NOMOVE = 0x0002
             SWP_NOSIZE = 0x0001
             SWP_NOZORDER = 0x0004
+            SWP_NOACTIVATE = 0x0010
             SWP_FRAMECHANGED = 0x0020
+
+            style = user32.GetWindowLongW(hwnd, GWL_STYLE)
+            style &= ~(WS_CAPTION | WS_THICKFRAME)
+            user32.SetWindowLongW(hwnd, GWL_STYLE, style)
 
             exstyle = user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
             exstyle &= ~WS_EX_TOOLWINDOW
             exstyle |= WS_EX_APPWINDOW
             user32.SetWindowLongW(hwnd, GWL_EXSTYLE, exstyle)
+
             user32.SetWindowPos(
                 hwnd, 0, 0, 0, 0, 0,
-                SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER |
+                SWP_NOACTIVATE | SWP_FRAMECHANGED,
             )
         except Exception as e:
-            log_debug(f"[GUI] could not set Windows Alt+Tab style: {repr(e)}")
+            log_debug(f"[GUI] could not set Windows borderless style: {repr(e)}")
 
     @staticmethod
     def _load_saved_window_positions():
@@ -649,7 +666,7 @@ class BridgeGui:
             self.root.resizable(False, False)
             self.root.minsize(self.MINI_WIDTH, self.MINI_HEIGHT)
             self.root.maxsize(self.MINI_WIDTH, self.MINI_HEIGHT)
-            self.root.overrideredirect(True)
+            self._apply_borderless_window_style()
             self._set_windows_toolwindow(False)
             self.root.attributes("-topmost", True)
             self.root.geometry(
@@ -658,7 +675,7 @@ class BridgeGui:
             self.root.deiconify()
             self.root.attributes("-topmost", True)
             self.root.lift()
-            self.root.after_idle(self._ensure_windows_alt_tab_presence)
+            self.root.after_idle(self._apply_borderless_window_style)
             if sys.platform == "darwin":
                 self.root.after_idle(
                     lambda: self.root.attributes("-topmost", True)
@@ -676,7 +693,7 @@ class BridgeGui:
             self.root.withdraw()
             self.mini_mode = False
             self.root.attributes("-topmost", False)
-            self.root.overrideredirect(True)
+            self._apply_borderless_window_style()
             self._set_windows_toolwindow(False)
             self.root.resizable(True, True)
             self.root.minsize(self.FULL_WIDTH, self.FULL_HEIGHT)
@@ -684,7 +701,7 @@ class BridgeGui:
             self.root.geometry(self.full_geometry)
             self.root.deiconify()
             self.root.lift()
-            self.root.after_idle(self._ensure_windows_alt_tab_presence)
+            self.root.after_idle(self._apply_borderless_window_style)
             try:
                 self.root.focus_force()
             except tk.TclError:
