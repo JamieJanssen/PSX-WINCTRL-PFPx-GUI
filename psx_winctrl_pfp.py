@@ -31,7 +31,7 @@ def get_app_dir():
 # Version / debug
 # ============================================================
 
-VERSION = "1.56"
+VERSION = "1.56a"
 APPLICATION_TITLE = "PSX WINCTRL PFPx Bridge"
 GUI_APPLICATION_TITLE = "PSX PFPx Bridge"
 LOG_FONT_FAMILY = "Menlo" if sys.platform == "darwin" else "Consolas"
@@ -517,6 +517,36 @@ class BridgeGui:
         self.canvas.bind("<Button-5>", lambda _event: self._scroll_log(+1))
 
         self.root.after(150, self._refresh)
+        self.root.after_idle(self._ensure_windows_alt_tab_presence)
+
+    def _ensure_windows_alt_tab_presence(self):
+        """Keep the borderless Tk window available through Windows Alt+Tab."""
+        if sys.platform != "win32":
+            return
+
+        try:
+            import ctypes
+
+            user32 = ctypes.windll.user32
+            hwnd = user32.GetParent(self.root.winfo_id()) or self.root.winfo_id()
+            GWL_EXSTYLE = -20
+            WS_EX_TOOLWINDOW = 0x00000080
+            WS_EX_APPWINDOW = 0x00040000
+            SWP_NOMOVE = 0x0002
+            SWP_NOSIZE = 0x0001
+            SWP_NOZORDER = 0x0004
+            SWP_FRAMECHANGED = 0x0020
+
+            exstyle = user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
+            exstyle &= ~WS_EX_TOOLWINDOW
+            exstyle |= WS_EX_APPWINDOW
+            user32.SetWindowLongW(hwnd, GWL_EXSTYLE, exstyle)
+            user32.SetWindowPos(
+                hwnd, 0, 0, 0, 0, 0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED,
+            )
+        except Exception as e:
+            log_debug(f"[GUI] could not set Windows Alt+Tab style: {repr(e)}")
 
     @staticmethod
     def _load_saved_window_positions():
@@ -628,6 +658,7 @@ class BridgeGui:
             self.root.deiconify()
             self.root.attributes("-topmost", True)
             self.root.lift()
+            self.root.after_idle(self._ensure_windows_alt_tab_presence)
             if sys.platform == "darwin":
                 self.root.after_idle(
                     lambda: self.root.attributes("-topmost", True)
@@ -653,6 +684,7 @@ class BridgeGui:
             self.root.geometry(self.full_geometry)
             self.root.deiconify()
             self.root.lift()
+            self.root.after_idle(self._ensure_windows_alt_tab_presence)
             try:
                 self.root.focus_force()
             except tk.TclError:
