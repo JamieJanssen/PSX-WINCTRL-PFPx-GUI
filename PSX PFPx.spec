@@ -21,7 +21,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name='psx_winctrl_pfp',
+    name='PSX PFPx',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -41,11 +41,11 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name='psx_winctrl_pfp',
+    name='PSX PFPx',
 )
 app = BUNDLE(
     coll,
-    name='psx_winctrl_pfp.app',
+    name='PSX PFPx.app',
     icon='psx.icns',
     bundle_identifier=None,
 )
