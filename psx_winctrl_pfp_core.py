@@ -529,6 +529,9 @@ class BridgeGui:
         self.canvas.bind("<Configure>", self._draw)
         self.canvas.bind("<Button-1>", self._on_click)
         self.canvas.bind("<Double-Button-1>", self._on_double_click)
+        self.canvas.bind("<Button-3>", self._on_secondary_click)
+        if sys.platform == "darwin":
+            self.canvas.bind("<Control-Button-1>", self._on_secondary_click)
         self.canvas.bind("<ButtonRelease-1>", self._on_release)
         self.canvas.bind("<B1-Motion>", self._on_drag)
         self.canvas.bind("<Motion>", self._on_motion)
@@ -1004,6 +1007,13 @@ class BridgeGui:
         self.mini_drag_anchor = None
         self._toggle_mini_mode()
 
+    def _on_secondary_click(self, _event):
+        if not self.mini_mode:
+            return
+
+        self.mini_drag_anchor = None
+        self._toggle_mini_mode()
+
     def _on_release(self, _event):
         self.log_dragging = False
         self.mini_drag_anchor = None
@@ -1388,14 +1398,34 @@ class BridgeGui:
                     font=("Helvetica", 12, "bold"),
                 )
                 if active_cdu == cdu:
-                    bar_margin = 5
+                    # Segmented status strip, positioned slightly higher and
+                    # one pixel narrower per side than the previous flat bar.
+                    bar_x1 = x1 + 6
+                    bar_x2 = x2 - 6
+                    bar_y1 = button_y2 - 7
+                    bar_y2 = button_y2 - 3
                     self.canvas.create_rectangle(
-                        x1 + bar_margin, button_y2 - 6,
-                        x2 - bar_margin, button_y2 - 2,
-                        fill=self.MINI_ACTIVE_BAR,
-                        outline=self.MINI_ACTIVE_BAR,
+                        bar_x1, bar_y1, bar_x2, bar_y2,
+                        fill="#214F12",
+                        outline="#214F12",
                         width=0,
                     )
+                    segment_width = 3
+                    segment_gap = 1
+                    segment_x = bar_x1 + 1
+                    while segment_x < bar_x2 - 1:
+                        segment_x2 = min(
+                            segment_x + segment_width,
+                            bar_x2 - 1,
+                        )
+                        self.canvas.create_rectangle(
+                            segment_x, bar_y1 + 1,
+                            segment_x2, bar_y2 - 1,
+                            fill=self.MINI_ACTIVE_BAR,
+                            outline=self.MINI_ACTIVE_BAR,
+                            width=0,
+                        )
+                        segment_x += segment_width + segment_gap
                 self.button_bounds[cdu] = (x1, button_y1, x2, button_y2)
             return
 
