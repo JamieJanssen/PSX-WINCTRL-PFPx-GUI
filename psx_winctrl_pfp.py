@@ -7,7 +7,7 @@ import configparser
 
 import psx_winctrl_pfp_core as core
 
-VERSION = "1.58b"
+VERSION = "1.58d"
 core.VERSION = VERSION
 
 

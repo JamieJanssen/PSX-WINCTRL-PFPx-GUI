@@ -453,10 +453,16 @@ class BridgeGui:
     BUTTON_TEXT = "#FFF8EE"
     MENU_BG = "#E9E1D4"
 
+    # Compact CDU-style Mini controls.
+    MINI_BG = "#856F58"
+    MINI_BUTTON_BG = "#14120F"
+    MINI_BUTTON_TEXT = "#FFFFFF"
+    MINI_ACTIVE_BAR = "#53DB13"
+
     FULL_WIDTH = 460
     FULL_HEIGHT = 365
-    MINI_WIDTH = 258
-    MINI_HEIGHT = 46
+    MINI_WIDTH = 160
+    MINI_HEIGHT = 58
 
     def __init__(self):
         self.root = tk.Tk()
@@ -472,11 +478,25 @@ class BridgeGui:
                 f"{self.MINI_WIDTH}x{self.MINI_HEIGHT}+{mini_x}+{mini_y}"
             )
 
-        self.root.geometry(self.full_geometry)
         self.root.minsize(self.FULL_WIDTH, self.FULL_HEIGHT)
         self.root.configure(background=self.WINDOW_BG)
         self.root.protocol("WM_DELETE_WINDOW", self.request_stop)
-        self._apply_borderless_window_style(self.FULL_WIDTH, self.FULL_HEIGHT)
+
+        if sys.platform == "darwin":
+            # On macOS, applying overrideredirect(True) can discard a geometry
+            # position that was set beforehand. Configure the borderless state
+            # while withdrawn, then restore the saved Full X/Y before showing.
+            self.root.withdraw()
+            self._apply_borderless_window_style(
+                self.FULL_WIDTH, self.FULL_HEIGHT
+            )
+            self.root.geometry(self.full_geometry)
+            self.root.deiconify()
+        else:
+            self.root.geometry(self.full_geometry)
+            self._apply_borderless_window_style(
+                self.FULL_WIDTH, self.FULL_HEIGHT
+            )
 
         self.bridge_thread = None
         self.psx_sender = None
@@ -1338,16 +1358,47 @@ class BridgeGui:
         right = width - margin
 
         if self.mini_mode:
-            button_y1 = 8
-            button_y2 = 38
-            self._draw_cdu_buttons(
-                margin,
-                button_y1,
-                button_y2,
-                include_mode=False,
-            )
+            self.canvas.configure(background=self.MINI_BG)
+
+            # Three compact square CDU selector buttons modelled after the
+            # physical selector style: black face, white L/C/R label and a
+            # green status bar below the currently selected CDU.
+            button_size = 40
+            gap = 8
+            start_x = 12
+            button_y1 = 6
+            button_y2 = button_y1 + button_size
+            active_cdu = RUNTIME_CONFIG.get_active_cdu()
+
+            for index, cdu in enumerate(("L", "C", "R")):
+                x1 = start_x + index * (button_size + gap)
+                x2 = x1 + button_size
+                self.canvas.create_rectangle(
+                    x1, button_y1, x2, button_y2,
+                    fill=self.MINI_BUTTON_BG,
+                    outline=self.MINI_BUTTON_BG,
+                    width=1,
+                )
+                self.canvas.create_text(
+                    (x1 + x2) / 2,
+                    (button_y1 + button_y2) / 2 - 1,
+                    text=cdu,
+                    anchor="center",
+                    fill=self.MINI_BUTTON_TEXT,
+                    font=("Helvetica", 12, "bold"),
+                )
+                if active_cdu == cdu:
+                    bar_margin = 5
+                    self.canvas.create_rectangle(
+                        x1 + bar_margin, 49, x2 - bar_margin, 53,
+                        fill=self.MINI_ACTIVE_BAR,
+                        outline=self.MINI_ACTIVE_BAR,
+                        width=0,
+                    )
+                self.button_bounds[cdu] = (x1, button_y1, x2, button_y2)
             return
 
+        self.canvas.configure(background=self.WINDOW_BG)
         header_y = 25
         self.canvas.create_text(
             margin,
