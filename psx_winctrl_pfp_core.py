@@ -2470,7 +2470,18 @@ class PsxSender:
         self.tx_thread.start()
 
     def stop(self):
+        # Cancel delayed display redraws before the HID handle can be closed.
+        # A Timer that fires during USB disconnect/reconnect would otherwise
+        # try to write to the old handle and raise ValueError("not open").
         self.stop_evt.set()
+        with self.fmc_lock:
+            if self.fmc_timer:
+                self.fmc_timer.cancel()
+                self.fmc_timer = None
+            if self.brightness_overlay_timer:
+                self.brightness_overlay_timer.cancel()
+                self.brightness_overlay_timer = None
+
         self.q.put(None)
         self.tx_thread.join(timeout=1.0)
         self.rx_thread.join(timeout=1.0)
@@ -2842,7 +2853,22 @@ class PsxSender:
 
         # Debug: FMC frame queued for direct HID display
         log_debug("[FMC] frame queued")
-        self.pfp_display.send_lines(ordered_lines, ordered_color_lines)
+
+        # USB disconnect/reconnect can close the HID handle after this timer
+        # has already started. Treat writes to that stale handle as a normal
+        # disconnect race instead of leaking a Timer-thread traceback.
+        if self.stop_evt.is_set() or SHUTDOWN_REQUESTED.is_set():
+            return
+        try:
+            self.pfp_display.send_lines(ordered_lines, ordered_color_lines)
+        except ValueError as e:
+            if "not open" in str(e).lower():
+                log_debug("[HID] skipped FMC frame: device is no longer open")
+                return
+            raise
+        except OSError as e:
+            log_debug(f"[HID] skipped FMC frame after write failure: {repr(e)}")
+            return
 
     def _handle_fmc_line(self, line):
         left, value = line.split("=", 1)
