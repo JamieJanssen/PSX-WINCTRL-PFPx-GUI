@@ -7,7 +7,7 @@ import configparser
 
 import psx_winctrl_pfp_core as core
 
-VERSION = "1.58"
+VERSION = "1.58a"
 core.VERSION = VERSION
 
 
@@ -192,17 +192,37 @@ def _resolve_connected_device(force_scan=True):
 
 def _log_no_connected_device():
     configured_pid = _configured_device_pid()
-    expected_pid = configured_pid or core.PFP_PRODUCT_ID
+
+    if configured_pid is None:
+        core.log("")
+        core.log("[ERROR] No valid WINCTRL CDU is configured.")
+        core.log("[ERROR] Check the [FMC] pid setting in psx_winctrl_pfp.ini.")
+        core.log("")
+        return
+
+    choice = DEVICE_CHOICE_BY_PID[configured_pid]
     core.log("")
-    core.log("[ERROR] WINCTRL CDU not found.")
+    core.log("[HID] Waiting for WINCTRL CDU...")
     core.log(
-        f"[ERROR] Expected VID={core.WINCTRL_VENDOR_ID:04X} "
-        f"PID={expected_pid:04X}"
+        f"[HID] Configured device: {choice[0]} "
+        f"(PID={choice[1]:04X})"
     )
     core.log("")
-    core.log("[ERROR] Check the [FMC] pid setting in psx_winctrl_pfp.ini.")
-    core.log("[ERROR] Also check that the CDU is connected and visible in Windows.")
-    core.log("")
+
+
+def _log_reconnect_retry():
+    configured_pid = _configured_device_pid()
+    if configured_pid in DEVICE_CHOICE_BY_PID:
+        label = DEVICE_CHOICE_BY_PID[configured_pid][0]
+        core.log_debug(
+            f"[HID] reconnect scan: {label} not found; "
+            f"retrying in {USB_RECONNECT_INTERVAL:.1f} s"
+        )
+    else:
+        core.log_debug(
+            f"[HID] reconnect scan: no supported WINCTRL CDU found; "
+            f"retrying in {USB_RECONNECT_INTERVAL:.1f} s"
+        )
 
 
 _ORIGINAL_GUI_INIT = core.BridgeGui.__init__
@@ -287,6 +307,7 @@ def _bridge_thread_main():
         choice = _resolve_connected_device(force_scan=True)
         if choice is None:
             _log_no_connected_device()
+            _log_reconnect_retry()
 
             while (
                 choice is None
@@ -295,6 +316,8 @@ def _bridge_thread_main():
                 if BRIDGE_CONTROL.shutdown_event.wait(USB_RECONNECT_INTERVAL):
                     break
                 choice = _resolve_connected_device(force_scan=True)
+                if choice is None:
+                    _log_reconnect_retry()
 
             if BRIDGE_CONTROL.shutdown_event.is_set():
                 break
