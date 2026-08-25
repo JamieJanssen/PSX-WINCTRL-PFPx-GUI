@@ -441,7 +441,7 @@ def log_highlight(message):
 class BridgeGui:
     """Canvas-based status window with an optional always-on-top mini mode."""
 
-    WINDOW_BG = "#79553C"
+    WINDOW_BG = "#8A7659"
     PANEL_BG = "#E9E1D4"
     TEXT_FG = "#000000"
     MUTED_FG = "#5A4030"
@@ -454,7 +454,7 @@ class BridgeGui:
     MENU_BG = "#E9E1D4"
 
     # Compact CDU-style Mini controls.
-    MINI_BG = "#856F58"
+    MINI_BG = "#8A7659"
     MINI_BUTTON_BG = "#14120F"
     MINI_BUTTON_TEXT = "#FFFFFF"
     MINI_ACTIVE_BAR = "#53DB13"
@@ -462,7 +462,7 @@ class BridgeGui:
     FULL_WIDTH = 460
     FULL_HEIGHT = 365
     MINI_WIDTH = 160
-    MINI_HEIGHT = 58
+    MINI_HEIGHT = 52
 
     def __init__(self):
         self.root = tk.Tk()
@@ -1390,7 +1390,8 @@ class BridgeGui:
                 if active_cdu == cdu:
                     bar_margin = 5
                     self.canvas.create_rectangle(
-                        x1 + bar_margin, 49, x2 - bar_margin, 53,
+                        x1 + bar_margin, button_y2 - 6,
+                        x2 - bar_margin, button_y2 - 2,
                         fill=self.MINI_ACTIVE_BAR,
                         outline=self.MINI_ACTIVE_BAR,
                         width=0,
