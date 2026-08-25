@@ -7,7 +7,7 @@ import configparser
 
 import psx_winctrl_pfp_core as core
 
-VERSION = "1.57"
+VERSION = "1.58"
 core.VERSION = VERSION
 
 
@@ -19,7 +19,16 @@ class _BridgeControlEvent:
         self.restart_event = threading.Event()
 
     def set(self):
-        self.shutdown_event.set()
+        # The legacy core also calls SHUTDOWN_REQUESTED.set() when the HID
+        # connection is lost. From the bridge thread that means reconnect;
+        # from the GUI/main thread it still means a real application shutdown.
+        if (
+            threading.current_thread().name == "PSX Bridge"
+            and not self.shutdown_event.is_set()
+        ):
+            self.restart_event.set()
+        else:
+            self.shutdown_event.set()
 
     def clear(self):
         self.shutdown_event.clear()
@@ -93,6 +102,108 @@ DEVICE_CHOICE_BY_PID = {
     pid: (label, pid, did) for label, pid, did in DEVICE_CHOICES
 }
 
+USB_RECONNECT_INTERVAL = 3.0
+USB_SCAN_CACHE_SECONDS = 3.0
+_USB_SCAN_LOCK = threading.Lock()
+_USB_SCAN_CACHE = set()
+_USB_SCAN_CACHE_TIME = 0.0
+
+
+def _configured_device_pid():
+    cfg = configparser.ConfigParser()
+    try:
+        cfg.read(core.CONFIG_FILE, encoding="utf-8")
+        if not cfg.has_option("FMC", "PID"):
+            return None
+        pid = int(cfg.get("FMC", "PID"), 16)
+    except (ValueError, configparser.Error, OSError):
+        return None
+    return pid if pid in DEVICE_CHOICE_BY_PID else None
+
+
+def _scan_connected_pids(force=False):
+    """Return supported WINCTRL PIDs currently visible through HID."""
+    global _USB_SCAN_CACHE, _USB_SCAN_CACHE_TIME
+
+    now = time.monotonic()
+    with _USB_SCAN_LOCK:
+        if (
+            not force
+            and now - _USB_SCAN_CACHE_TIME < USB_SCAN_CACHE_SECONDS
+        ):
+            return set(_USB_SCAN_CACHE)
+
+    try:
+        devices = core.hid.enumerate(core.WINCTRL_VENDOR_ID, 0)
+        connected = {
+            int(device.get("product_id", 0))
+            for device in devices
+            if int(device.get("product_id", 0)) in DEVICE_CHOICE_BY_PID
+        }
+    except Exception as e:
+        core.log_debug(f"[HID] USB scan failed: {repr(e)}")
+        connected = set()
+
+    with _USB_SCAN_LOCK:
+        _USB_SCAN_CACHE = set(connected)
+        _USB_SCAN_CACHE_TIME = now
+
+    return connected
+
+
+def _set_runtime_device(choice, save=False):
+    label, pid, did = choice
+
+    if save:
+        # save_ini_value updates only the matching key lines and keeps comments,
+        # ordering, blank lines, and all unrelated INI content intact.
+        core.save_ini_value("FMC", "PID", f"{pid:04X}")
+        core.save_ini_value("FMC", "DID", did)
+
+    core.PFP_PRODUCT_ID = pid
+    core.PFP_DEST = bytes([int(did[:2], 16), int(did[2:], 16)])
+    core.PFP_DEVICE_LABEL = core.pfp_device_label(pid)
+    return label, pid, did
+
+
+def _resolve_connected_device(force_scan=True):
+    """Keep the configured device when present, otherwise select first connected."""
+    connected = _scan_connected_pids(force=force_scan)
+    configured_pid = _configured_device_pid()
+
+    if configured_pid in connected:
+        choice = DEVICE_CHOICE_BY_PID[configured_pid]
+        _set_runtime_device(choice, save=False)
+        return choice
+
+    for choice in DEVICE_CHOICES:
+        if choice[1] in connected:
+            previous_pid = configured_pid
+            _set_runtime_device(choice, save=True)
+            if previous_pid != choice[1]:
+                core.log(
+                    f"[HID] auto-selected {choice[0]} "
+                    f"(PID={choice[1]:04X} DID={choice[2]})"
+                )
+            return choice
+
+    return None
+
+
+def _log_no_connected_device():
+    configured_pid = _configured_device_pid()
+    expected_pid = configured_pid or core.PFP_PRODUCT_ID
+    core.log("")
+    core.log("[ERROR] WINCTRL CDU not found.")
+    core.log(
+        f"[ERROR] Expected VID={core.WINCTRL_VENDOR_ID:04X} "
+        f"PID={expected_pid:04X}"
+    )
+    core.log("")
+    core.log("[ERROR] Check the [FMC] pid setting in psx_winctrl_pfp.ini.")
+    core.log("[ERROR] Also check that the CDU is connected and visible in Windows.")
+    core.log("")
+
 
 _ORIGINAL_GUI_INIT = core.BridgeGui.__init__
 _ORIGINAL_DRAW = core.BridgeGui._draw
@@ -104,7 +215,7 @@ _ORIGINAL_LOG = core.log
 
 def _patched_log(message):
     if (
-        message == "[END]"
+        str(message).startswith("[END]")
         and BRIDGE_CONTROL.restart_event.is_set()
         and not BRIDGE_CONTROL.shutdown_event.is_set()
     ):
@@ -147,6 +258,7 @@ def _show_settings(self):
     self.about_open = False
     self.settings_open = True
     self.device_dropdown_open = False
+    _scan_connected_pids(force=True)
     self._draw()
 
 
@@ -170,6 +282,27 @@ def _toggle_mini_mode(self):
 
 def _bridge_thread_main():
     while not BRIDGE_CONTROL.shutdown_event.is_set():
+        # Scan immediately. If no supported unit is present, keep the GUI alive
+        # and retry every three seconds until a device appears.
+        choice = _resolve_connected_device(force_scan=True)
+        if choice is None:
+            _log_no_connected_device()
+
+            while (
+                choice is None
+                and not BRIDGE_CONTROL.shutdown_event.is_set()
+            ):
+                if BRIDGE_CONTROL.shutdown_event.wait(USB_RECONNECT_INTERVAL):
+                    break
+                choice = _resolve_connected_device(force_scan=True)
+
+            if BRIDGE_CONTROL.shutdown_event.is_set():
+                break
+            if choice is None:
+                continue
+
+            core.log(f"[HID] detected {choice[0]}")
+
         BRIDGE_CONTROL.restart_event.clear()
         core.bridge_main()
 
@@ -179,8 +312,13 @@ def _bridge_thread_main():
 
         if BRIDGE_CONTROL.shutdown_event.is_set():
             break
+
+        # HID loss sets restart_event through _BridgeControlEvent.set(). Scan
+        # again immediately; if the cable is still out the loop above waits
+        # three seconds between subsequent scans.
         if BRIDGE_CONTROL.restart_event.is_set():
             continue
+
         break
 
 
@@ -201,14 +339,7 @@ def _start_bridge_thread(self):
 def _select_device(self, choice):
     label, pid, did = choice
 
-    # save_ini_value changes only the matching key line and therefore keeps
-    # comments, ordering, blank lines, and all unrelated INI content intact.
-    core.save_ini_value("FMC", "PID", f"{pid:04X}")
-    core.save_ini_value("FMC", "DID", did)
-
-    core.PFP_PRODUCT_ID = pid
-    core.PFP_DEST = bytes([int(did[:2], 16), int(did[2:], 16)])
-    core.PFP_DEVICE_LABEL = core.pfp_device_label(pid)
+    _set_runtime_device(choice, save=True)
     self.root.title(self._display_title())
 
     core.log(
@@ -313,7 +444,9 @@ def _draw_settings(self, width, height):
     field_y1 = y1 + 42
     field_x2 = x2 - 18
     field_y2 = field_y1 + 28
-    current_label = self._configured_device_choice()[0]
+    current_choice = self._configured_device_choice()
+    current_label = current_choice[0]
+    connected_pids = _scan_connected_pids(force=False)
 
     self.canvas.create_rectangle(
         field_x1, field_y1, field_x2, field_y2,
@@ -329,6 +462,15 @@ def _draw_settings(self, width, height):
         fill=self.TEXT_FG,
         font=("Helvetica", 10),
     )
+    if current_choice[1] in connected_pids:
+        self.canvas.create_text(
+            field_x2 - 28,
+            (field_y1 + field_y2) / 2,
+            text="Connected",
+            anchor="e",
+            fill="#2F7D4A",
+            font=("Helvetica", 9, "bold"),
+        )
     self.canvas.create_text(
         field_x2 - 10,
         (field_y1 + field_y2) / 2,
@@ -370,6 +512,15 @@ def _draw_settings(self, width, height):
                 fill=self.TEXT_FG,
                 font=("Helvetica", 9),
             )
+            if choice[1] in connected_pids:
+                self.canvas.create_text(
+                    field_x2 - 8,
+                    (row_y1 + row_y2) / 2,
+                    text="Connected",
+                    anchor="e",
+                    fill="#2F7D4A",
+                    font=("Helvetica", 9, "bold"),
+                )
             self.device_option_bounds.append(
                 (choice, (field_x1, row_y1, field_x2, row_y2))
             )
