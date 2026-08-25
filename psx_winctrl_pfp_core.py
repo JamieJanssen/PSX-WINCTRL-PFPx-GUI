@@ -1395,7 +1395,7 @@ class BridgeGui:
                 )
                 self.canvas.create_text(
                     (x1 + x2) / 2,
-                    (button_y1 + button_y2) / 2 - 1,
+                    button_y1 + 13,
                     text=cdu,
                     anchor="center",
                     fill=self.MINI_BUTTON_TEXT,
@@ -1408,8 +1408,9 @@ class BridgeGui:
                     # row phase make the bottom row finish green at both edges.
                     bar_x1 = x1 + 6
                     bar_x2 = x2 - 7
-                    bar_y1 = button_y2 - 8
-                    bar_y2 = button_y2 - 2
+                    # Match physical selector vertical proportions.
+                    bar_y1 = button_y1 + 23
+                    bar_y2 = button_y1 + 29
                     self.canvas.create_rectangle(
                         bar_x1, bar_y1, bar_x2, bar_y2,
                         fill="#214F12",
