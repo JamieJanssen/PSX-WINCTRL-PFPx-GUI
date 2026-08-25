@@ -529,6 +529,10 @@ class BridgeGui:
         self.canvas.bind("<Configure>", self._draw)
         self.canvas.bind("<Button-1>", self._on_click)
         self.canvas.bind("<Double-Button-1>", self._on_double_click)
+        # Secondary-click mappings differ between mice, macOS trackpads and
+        # Tk versions. Accept both Button-2 and Button-3, plus Ctrl-click on
+        # macOS, so Mini mode can always be restored to Full reliably.
+        self.canvas.bind("<Button-2>", self._on_secondary_click)
         self.canvas.bind("<Button-3>", self._on_secondary_click)
         if sys.platform == "darwin":
             self.canvas.bind("<Control-Button-1>", self._on_secondary_click)
@@ -1398,13 +1402,14 @@ class BridgeGui:
                     font=("Helvetica", 12, "bold"),
                 )
                 if active_cdu == cdu:
-                    # Four-row LED matrix. Adjacent rows are offset so each
-                    # square touches the next row only corner-to-corner. Keep
-                    # LED spacing separate from the 8 px CDU button gap.
+                    # Four-row compact LED matrix. One-pixel LEDs give the
+                    # strip a finer, less bulky appearance while retaining the
+                    # corner-touching checker pattern. The 25 px inner width and
+                    # row phase make the bottom row finish green at both edges.
                     bar_x1 = x1 + 6
-                    bar_x2 = x2 - 6
-                    bar_y1 = button_y2 - 10
-                    bar_y2 = button_y2 - 1
+                    bar_x2 = x2 - 7
+                    bar_y1 = button_y2 - 8
+                    bar_y2 = button_y2 - 2
                     self.canvas.create_rectangle(
                         bar_x1, bar_y1, bar_x2, bar_y2,
                         fill="#214F12",
@@ -1412,32 +1417,30 @@ class BridgeGui:
                         width=0,
                     )
 
-                    led_size = 2
-                    led_pitch = led_size * 2
-                    led_row_step = led_size
+                    led_size = 1
+                    led_pitch = 2
+                    led_row_step = 1
                     inner_x1 = bar_x1 + 1
                     inner_x2 = bar_x2 - 1
                     inner_y1 = bar_y1 + 1
-                    inner_y2 = bar_y2 - 1
 
                     for row in range(4):
                         y1_led = inner_y1 + row * led_row_step
                         y2_led = y1_led + led_size
-                        if y2_led > inner_y2 + 1:
-                            break
 
-                        row_offset = led_size if row % 2 else 0
-                        led_x = inner_x1 - row_offset
+                        # Start rows 1/3 one pixel later than rows 2/4. With
+                        # the odd inner width, the fourth row starts and ends
+                        # with a green LED.
+                        row_offset = 1 if row % 2 == 0 else 0
+                        led_x = inner_x1 + row_offset
                         while led_x < inner_x2:
-                            led_x1 = max(inner_x1, led_x)
                             led_x2 = min(led_x + led_size, inner_x2)
-                            if led_x2 > led_x1:
-                                self.canvas.create_rectangle(
-                                    led_x1, y1_led, led_x2, y2_led,
-                                    fill=self.MINI_ACTIVE_BAR,
-                                    outline=self.MINI_ACTIVE_BAR,
-                                    width=0,
-                                )
+                            self.canvas.create_rectangle(
+                                led_x, y1_led, led_x2, y2_led,
+                                fill=self.MINI_ACTIVE_BAR,
+                                outline=self.MINI_ACTIVE_BAR,
+                                width=0,
+                            )
                             led_x += led_pitch
                 self.button_bounds[cdu] = (x1, button_y1, x2, button_y2)
             return
