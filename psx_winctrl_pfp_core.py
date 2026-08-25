@@ -1398,34 +1398,42 @@ class BridgeGui:
                     font=("Helvetica", 12, "bold"),
                 )
                 if active_cdu == cdu:
-                    # Segmented status strip, positioned slightly higher and
-                    # one pixel narrower per side than the previous flat bar.
+                    # Four-row LED-matrix selector strip. Alternate rows are
+                    # half a cell offset to mimic the staggered checker pattern
+                    # of the physical CDU annunciator.
                     bar_x1 = x1 + 6
                     bar_x2 = x2 - 6
-                    bar_y1 = button_y2 - 7
-                    bar_y2 = button_y2 - 3
+                    bar_y1 = button_y2 - 9
+                    bar_y2 = button_y2 - 2
                     self.canvas.create_rectangle(
                         bar_x1, bar_y1, bar_x2, bar_y2,
                         fill="#214F12",
                         outline="#214F12",
                         width=0,
                     )
-                    segment_width = 3
-                    segment_gap = 1
-                    segment_x = bar_x1 + 1
-                    while segment_x < bar_x2 - 1:
-                        segment_x2 = min(
-                            segment_x + segment_width,
-                            bar_x2 - 1,
-                        )
-                        self.canvas.create_rectangle(
-                            segment_x, bar_y1 + 1,
-                            segment_x2, bar_y2 - 1,
-                            fill=self.MINI_ACTIVE_BAR,
-                            outline=self.MINI_ACTIVE_BAR,
-                            width=0,
-                        )
-                        segment_x += segment_width + segment_gap
+
+                    cell = 2
+                    gap = 1
+                    row_step = 1
+                    for row in range(4):
+                        y1_led = bar_y1 + 1 + row * row_step
+                        y2_led = min(y1_led + cell - 1, bar_y2 - 1)
+                        if y1_led > bar_y2 - 1:
+                            break
+
+                        offset = (cell + gap) // 2 if row % 2 else 0
+                        led_x = bar_x1 + 1 - offset
+                        while led_x < bar_x2 - 1:
+                            led_x1 = max(bar_x1 + 1, led_x)
+                            led_x2 = min(led_x + cell, bar_x2 - 1)
+                            if led_x2 > led_x1:
+                                self.canvas.create_rectangle(
+                                    led_x1, y1_led, led_x2, y2_led,
+                                    fill=self.MINI_ACTIVE_BAR,
+                                    outline=self.MINI_ACTIVE_BAR,
+                                    width=0,
+                                )
+                            led_x += cell + gap
                 self.button_bounds[cdu] = (x1, button_y1, x2, button_y2)
             return
 
