@@ -1409,8 +1409,8 @@ class BridgeGui:
                     bar_x1 = x1 + 6
                     bar_x2 = x2 - 7
                     # Match physical selector vertical proportions.
-                    bar_y1 = button_y1 + 23
-                    bar_y2 = button_y1 + 29
+                    bar_y1 = button_y1 + 26
+                    bar_y2 = button_y1 + 32
                     self.canvas.create_rectangle(
                         bar_x1, bar_y1, bar_x2, bar_y2,
                         fill="#214F12",
