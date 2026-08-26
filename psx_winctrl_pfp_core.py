@@ -1049,9 +1049,29 @@ class BridgeGui:
             screen_h = self.root.winfo_screenheight()
             x = max(0, min(x, max(0, screen_w - self.MINI_WIDTH)))
             y = max(0, min(y, max(0, screen_h - self.MINI_HEIGHT)))
-            self.root.geometry(
-                f"{self.MINI_WIDTH}x{self.MINI_HEIGHT}+{x}+{y}"
-            )
+            if sys.platform == "win32":
+                # Move the existing native borderless window without asking Tk
+                # to recompute its client size. A Tk geometry(width x height)
+                # update can reintroduce hidden non-client frame dimensions on
+                # the first drag event and make Mini jump larger.
+                try:
+                    import ctypes
+
+                    user32 = ctypes.windll.user32
+                    hwnd = user32.GetParent(self.root.winfo_id()) or self.root.winfo_id()
+                    SWP_NOSIZE = 0x0001
+                    SWP_NOZORDER = 0x0004
+                    SWP_NOACTIVATE = 0x0010
+                    user32.SetWindowPos(
+                        hwnd, 0, x, y, 0, 0,
+                        SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
+                    )
+                except Exception as e:
+                    log_debug(f"[GUI] native Mini drag failed: {repr(e)}")
+            else:
+                self.root.geometry(
+                    f"{self.MINI_WIDTH}x{self.MINI_HEIGHT}+{x}+{y}"
+                )
             return
 
         if self.full_drag_anchor is not None:
