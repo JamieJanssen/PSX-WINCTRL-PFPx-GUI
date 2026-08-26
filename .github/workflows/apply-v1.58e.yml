@@ -1,0 +1,79 @@
+name: Apply v1.58e Mini/Main colour update
+
+on:
+  push:
+    paths:
+      - '.v1.58e-trigger'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Patch source
+        shell: python
+        run: |
+          from pathlib import Path
+
+          main = Path('psx_winctrl_pfp.py')
+          s = main.read_text(encoding='utf-8')
+          old = 'VERSION = "1.58d"'
+          new = 'VERSION = "1.58e"'
+          if old not in s:
+              raise SystemExit('Expected v1.58d version string not found')
+          s = s.replace(old, new, 1)
+          main.write_text(s, encoding='utf-8')
+
+          core = Path('psx_winctrl_pfp_core.py')
+          s = core.read_text(encoding='utf-8')
+
+          replacements = [
+              ('    WINDOW_BG = "#79553C"', '    WINDOW_BG = "#8A7659"'),
+              ('    MINI_BG = "#856F58"', '    MINI_BG = "#8A7659"'),
+              ('    MINI_HEIGHT = 58', '    MINI_HEIGHT = 52'),
+              (
+                  '                        x1 + bar_margin, 49, x2 - bar_margin, 53,',
+                  '                        x1 + bar_margin, button_y2 - 6,\n                        x2 - bar_margin, button_y2 - 2,'
+              ),
+          ]
+
+          for old, new in replacements:
+              if old not in s:
+                  raise SystemExit(f'Expected source fragment not found: {old!r}')
+              s = s.replace(old, new, 1)
+
+          old_comment = '''            # Three compact square CDU selector buttons modelled after the
+            # physical selector style: black face, white L/C/R label and a
+            # green status bar below the currently selected CDU.'''
+          new_comment = '''            # Three compact square CDU selector buttons modelled after the
+            # physical selector style: black face, white L/C/R label and a
+            # green status bar inside the bottom of the selected CDU button.'''
+          if old_comment in s:
+              s = s.replace(old_comment, new_comment, 1)
+
+          core.write_text(s, encoding='utf-8')
+
+      - name: Syntax check
+        run: |
+          python - <<'PY'
+          import ast
+          from pathlib import Path
+          for name in ('psx_winctrl_pfp.py', 'psx_winctrl_pfp_core.py'):
+              ast.parse(Path(name).read_text(encoding='utf-8'), filename=name)
+          PY
+          python -m py_compile psx_winctrl_pfp.py psx_winctrl_pfp_core.py
+
+      - name: Commit patch
+        run: |
+          git config user.name "JamieJanssen"
+          git config user.email "jamie@itsjamie.com"
+          git add psx_winctrl_pfp.py psx_winctrl_pfp_core.py
+          git commit -m "v1.58e unify window colours and move Mini selector bar inside"
+          git push

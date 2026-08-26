@@ -745,6 +745,16 @@ class BridgeGui:
             else:
                 mini_x, mini_y = x, y
 
+            # Never reopen Mini outside the usable screen area, even if an old
+            # saved/runtime position became invalid after a display change.
+            screen_w = self.root.winfo_screenwidth()
+            screen_h = self.root.winfo_screenheight()
+            mini_x = max(0, min(mini_x, max(0, screen_w - self.MINI_WIDTH)))
+            mini_y = max(0, min(mini_y, max(0, screen_h - self.MINI_HEIGHT)))
+            self.mini_geometry = (
+                f"{self.MINI_WIDTH}x{self.MINI_HEIGHT}+{mini_x}+{mini_y}"
+            )
+
             # Withdraw while changing the native window style. On Windows this
             # prevents the taskbar from retaining a second-looking window entry.
             self.root.withdraw()
@@ -1031,7 +1041,17 @@ class BridgeGui:
             anchor_x, anchor_y = self.mini_drag_anchor
             x = self.root.winfo_pointerx() - anchor_x
             y = self.root.winfo_pointery() - anchor_y
-            self.root.geometry(f"+{x}+{y}")
+
+            # Keep Mini fully reachable and preserve its exact client size while
+            # dragging. Windows/Tk can otherwise resize a borderless window when
+            # geometry is updated with position-only coordinates.
+            screen_w = self.root.winfo_screenwidth()
+            screen_h = self.root.winfo_screenheight()
+            x = max(0, min(x, max(0, screen_w - self.MINI_WIDTH)))
+            y = max(0, min(y, max(0, screen_h - self.MINI_HEIGHT)))
+            self.root.geometry(
+                f"{self.MINI_WIDTH}x{self.MINI_HEIGHT}+{x}+{y}"
+            )
             return
 
         if self.full_drag_anchor is not None:
@@ -1406,7 +1426,7 @@ class BridgeGui:
                     # strip a finer, less bulky appearance while retaining the
                     # corner-touching checker pattern. The 25 px inner width and
                     # row phase make the bottom row finish green at both edges.
-                    bar_x1 = x1 + 6
+                    bar_x1 = x1 + 7
                     bar_x2 = x2 - 7
                     # Match physical selector vertical proportions.
                     bar_y1 = button_y1 + 26
