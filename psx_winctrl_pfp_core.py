@@ -467,6 +467,7 @@ class BridgeGui:
     def __init__(self):
         self.root = tk.Tk()
         self.root.title(self._display_title())
+        self._restore_borderless_after_map = False
 
         if sys.platform == "win32":
             # Set the live Tk/taskbar icon as well as the executable icon.
@@ -553,6 +554,7 @@ class BridgeGui:
         self.canvas.bind("<MouseWheel>", self._on_mousewheel)
         self.canvas.bind("<Button-4>", lambda _event: self._scroll_log(-1))
         self.canvas.bind("<Button-5>", lambda _event: self._scroll_log(+1))
+        self.root.bind("<Map>", self._on_window_map, add="+")
 
         self.root.after(150, self._refresh)
 
@@ -1010,7 +1012,7 @@ class BridgeGui:
                 elif name == "MODE":
                     self._toggle_mini_mode()
                 elif name == "MINIMIZE":
-                    self.root.iconify()
+                    self._minimize_window()
                 else:
                     self._select_cdu(name)
                 return
@@ -1019,6 +1021,40 @@ class BridgeGui:
         # draggable title bar, while buttons and the menu keep their own actions.
         if not self.mini_mode and event.y <= 48:
             self.full_drag_anchor = (event.x, event.y)
+
+    def _minimize_window(self):
+        if sys.platform != "darwin":
+            self.root.iconify()
+            return
+
+        # Tk cannot reliably iconify an overrideredirect window on macOS.
+        # Temporarily return it to the native window manager; the Map handler
+        # restores the borderless style when the user opens it from the Dock.
+        self._restore_borderless_after_map = True
+        self.root.overrideredirect(False)
+        self.root.update_idletasks()
+        self.root.iconify()
+
+    def _on_window_map(self, _event=None):
+        if sys.platform != "darwin" or not self._restore_borderless_after_map:
+            return
+
+        self._restore_borderless_after_map = False
+        geometry = self.root.geometry()
+
+        def restore_borderless():
+            if not self.root.winfo_exists():
+                return
+            try:
+                self.root.overrideredirect(True)
+                self.root.geometry(geometry)
+            except tk.TclError:
+                pass
+
+        # Wait until macOS has fully remapped the native window before removing
+        # its frame again. This keeps Dock restore functional and avoids a
+        # permanent native title bar.
+        self.root.after(50, restore_borderless)
 
     def _on_double_click(self, event):
         if not self.mini_mode:
