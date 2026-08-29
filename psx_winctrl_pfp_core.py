@@ -461,12 +461,23 @@ class BridgeGui:
 
     FULL_WIDTH = 460
     FULL_HEIGHT = 365
-    MINI_WIDTH = 160
-    MINI_HEIGHT = 52
+    MINI_WIDTH = 144
+    MINI_HEIGHT = 47
 
     def __init__(self):
         self.root = tk.Tk()
         self.root.title(self._display_title())
+
+        if sys.platform == "win32":
+            # Set the live Tk/taskbar icon as well as the executable icon.
+            # PyInstaller extracts bundled data under sys._MEIPASS in frozen builds.
+            try:
+                resource_dir = getattr(sys, "_MEIPASS", get_app_dir())
+                icon_path = os.path.join(resource_dir, "psx.ico")
+                if os.path.exists(icon_path):
+                    self.root.iconbitmap(icon_path)
+            except Exception as e:
+                log_debug(f"[GUI] Windows icon setup failed: {repr(e)}")
 
         full_x, full_y, mini_x, mini_y = self._load_saved_window_positions()
         self.full_geometry = f"{self.FULL_WIDTH}x{self.FULL_HEIGHT}"
@@ -998,6 +1009,8 @@ class BridgeGui:
                         self.request_stop()
                 elif name == "MODE":
                     self._toggle_mini_mode()
+                elif name == "MINIMIZE":
+                    self.root.iconify()
                 else:
                     self._select_cdu(name)
                 return
@@ -1129,7 +1142,9 @@ class BridgeGui:
         )
 
     def _draw_button(self, name, x1, y1, x2, y2, label, active=False):
-        fill = self.BUTTON_ACTIVE_BG if active else self.BUTTON_BG
+        # Full-mode controls use the same black face as the physical-style
+        # Mini selectors; the active CDU remains green.
+        fill = self.BUTTON_ACTIVE_BG if active else self.MINI_BUTTON_BG
         text_color = self.BUTTON_ACTIVE_TEXT if active else self.BUTTON_TEXT
         self.canvas.create_rectangle(
             x1, y1, x2, y2,
@@ -1417,10 +1432,12 @@ class BridgeGui:
             # Three compact square CDU selector buttons modelled after the
             # physical selector style: black face, white L/C/R label and a
             # green status bar below the currently selected CDU.
-            button_size = 40
-            gap = 8
-            start_x = 12
-            button_y1 = 6
+            # Keep the v1.60 selector proportions while scaling the whole
+            # Mini control group to roughly 90% of its previous size.
+            button_size = 36
+            gap = 7
+            start_x = 11
+            button_y1 = 5
             button_y2 = button_y1 + button_size
             active_cdu = RUNTIME_CONFIG.get_active_cdu()
 
@@ -1435,22 +1452,22 @@ class BridgeGui:
                 )
                 self.canvas.create_text(
                     (x1 + x2) / 2,
-                    button_y1 + 13,
+                    button_y1 + 12,
                     text=cdu,
                     anchor="center",
                     fill=self.MINI_BUTTON_TEXT,
-                    font=("Helvetica", 12, "bold"),
+                    font=("Helvetica", 11, "bold"),
                 )
                 if active_cdu == cdu:
                     # Four-row compact LED matrix. One-pixel LEDs give the
                     # strip a finer, less bulky appearance while retaining the
                     # corner-touching checker pattern. The 25 px inner width and
                     # row phase make the bottom row finish green at both edges.
-                    bar_x1 = x1 + 7
-                    bar_x2 = x2 - 7
+                    bar_x1 = x1 + 6
+                    bar_x2 = x2 - 6
                     # Match physical selector vertical proportions.
-                    bar_y1 = button_y1 + 26
-                    bar_y2 = button_y1 + 32
+                    bar_y1 = button_y1 + 23
+                    bar_y2 = button_y1 + 29
                     self.canvas.create_rectangle(
                         bar_x1, bar_y1, bar_x2, bar_y2,
                         fill="#214F12",
@@ -1526,12 +1543,17 @@ class BridgeGui:
             include_mode=True,
         )
 
+        # Compact window controls at the bottom-right. Keep the close action
+        # available even after the bridge thread has already stopped.
+        window_button_width = 42
         quit_x2 = right
-        quit_x1 = quit_x2 - 88
-        quit_label = "Close" if (
-            self.bridge_thread is not None and not self.bridge_thread.is_alive()
-        ) else "Quit"
-        self._draw_button("QUIT", quit_x1, button_y1, quit_x2, button_y2, quit_label)
+        quit_x1 = quit_x2 - window_button_width
+        minimize_x2 = quit_x1 - 6
+        minimize_x1 = minimize_x2 - window_button_width
+        self._draw_button(
+            "MINIMIZE", minimize_x1, button_y1, minimize_x2, button_y2, "_"
+        )
+        self._draw_button("QUIT", quit_x1, button_y1, quit_x2, button_y2, "X")
 
         self._draw_menu(right)
         self._draw_about(width, height)

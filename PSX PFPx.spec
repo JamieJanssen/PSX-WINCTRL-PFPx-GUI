@@ -1,11 +1,12 @@
 # -*- mode: python ; coding: utf-8 -*-
+import sys
 
 
 a = Analysis(
     ['psx_winctrl_pfp.py'],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas=[('psx.ico', '.')] if sys.platform == 'win32' else [],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
@@ -32,7 +33,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=['psx.icns'],
+    icon=['psx.ico'] if sys.platform == 'win32' else ['psx.icns'],
 )
 coll = COLLECT(
     exe,
