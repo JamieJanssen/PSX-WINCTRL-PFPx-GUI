@@ -19,7 +19,6 @@ Keep the bridge application and its configuration file in the same folder:
 
 ```text
 psx_winctrl_pfp.exe
-psx_winctrl_pfp.py
 psx_winctrl_pfp.ini
 ```
 
