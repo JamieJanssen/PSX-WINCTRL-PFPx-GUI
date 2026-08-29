@@ -31,7 +31,7 @@ def get_app_dir():
 # Version / debug
 # ============================================================
 
-VERSION = "1.61"
+VERSION = "1.62"
 APPLICATION_TITLE = "PSX WINCTRL PFPx Bridge"
 GUI_APPLICATION_TITLE = "PSX PFPx Bridge"
 LOG_FONT_FAMILY = "Menlo" if sys.platform == "darwin" else "Consolas"
@@ -3954,10 +3954,6 @@ def main():
     GUI_APP.set_bridge_thread(bridge_thread)
     GUI_APP.root.after(100, bridge_thread.start)
     GUI_APP.run()
-
-
-if __name__ == "__main__":
-    main()
 
 
 # ============================================================
