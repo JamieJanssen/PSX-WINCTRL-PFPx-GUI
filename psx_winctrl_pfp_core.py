@@ -3945,16 +3945,3 @@ AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 AAAA
 """
-
-def main():
-    global GUI_APP
-
-    GUI_APP = BridgeGui()
-    bridge_thread = threading.Thread(target=bridge_main, name="PSX Bridge")
-    GUI_APP.set_bridge_thread(bridge_thread)
-    GUI_APP.root.after(100, bridge_thread.start)
-    GUI_APP.run()
-
-
-if __name__ == "__main__":
-    main()
