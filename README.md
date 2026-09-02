@@ -11,19 +11,26 @@ Font by **Martin and Hardy**.
 
 - Aerowinx PSX running with its TCP server enabled
 - A supported WINCTRL / Winwing CDU
-- Python 3.13 or newer when running the `.py` file, or the packaged application
+- Python 3.13 or newer when running the `.py` files, or the packaged application
 
 The CDU does **not** have to be connected before the bridge is started. The bridge can wait for the device and connect automatically when it becomes available.
 
 ## Installation and files
 
-The project is distributed as a single Python file:
+The Python source is split into two files:
 
 ```text
 psx_winctrl_pfp.py
+psx_winctrl_pfp_core.py
 ```
 
-On Windows, the packaged application normally uses an INI file next to the script or executable:
+`psx_winctrl_pfp.py` is the **only application entry point** and is the file that should be started by the user. It contains the GUI integration and starts the bridge core.
+
+`psx_winctrl_pfp_core.py` contains the bridge, PSX, HID, display and embedded-font implementation. It is imported by `psx_winctrl_pfp.py` and is **not intended to be started directly**. The core deliberately has no standalone `main()` / `if __name__ == "__main__"` entry point.
+
+Both Python files must therefore be kept together in the same directory when running from source.
+
+On Windows, the packaged application normally uses an INI file next to the executable:
 
 ```text
 psx_winctrl_pfp.exe
@@ -47,6 +54,8 @@ Python:
 ```bash
 python psx_winctrl_pfp.py
 ```
+
+Do not start `psx_winctrl_pfp_core.py` directly.
 
 Windows packaged application:
 
@@ -234,6 +243,7 @@ The selected PSX CDU determines which CDU display, annunciators and key channel 
 
 ## Notes
 
+- Start the Python version with `psx_winctrl_pfp.py`; `psx_winctrl_pfp_core.py` is an internal module and has no standalone entry point.
 - The bridge can be started before the WINCTRL CDU is connected.
 - USB unplug/replug does not require restarting the GUI.
 - Use **Settings** to select a specific supported CDU when multiple devices are available.
