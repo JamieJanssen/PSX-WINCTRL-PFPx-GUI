@@ -26,7 +26,7 @@ psx_winctrl_pfp_core.py
 
 `psx_winctrl_pfp.py` is the **only application entry point** and is the file that should be started by the user. It contains the GUI integration and starts the bridge core.
 
-`psx_winctrl_pfp_core.py` contains the bridge, PSX, HID, display and embedded-font implementation. It is imported by `psx_winctrl_pfp.py` and is **not intended to be started directly**. The core deliberately has no standalone `main()` / `if __name__ == "__main__"` entry point.
+`psx_winctrl_pfp_core.py` contains the bridge, PSX, HID, display and embedded-font implementation. It is imported by `psx_winctrl_pfp.py` and is **not intended to be started directly**.
 
 Both Python files must therefore be kept together in the same directory when running from source.
 
